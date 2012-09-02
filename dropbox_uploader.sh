@@ -40,7 +40,7 @@ API_METADATA_URL="https://api.dropbox.com/1/metadata/dropbox"
 API_INFO_URL="https://api.dropbox.com/1/account/info"
 APP_CREATE_URL="https://www2.dropbox.com/developers/apps"
 RESPONSE_FILE="/tmp/du_resp_$RANDOM"
-BIN_DEPS="curl sed basename grep cut stat"
+BIN_DEPS="curl sed basename grep cut stat uname"
 VERSION="0.9.5"
 
 umask 077
@@ -87,7 +87,7 @@ function usage() {
     echo -e "\nCommands:"
     
     echo -e "\t upload   [LOCAL_FILE]  <REMOTE_FILE>"
-    echo -e "\t upload   [LOCAL_DIRECTORY]  [REMOTE_DIRECTORY]"
+    echo -e "\t rupload  [LOCAL_DIRECTORY]  [REMOTE_DIRECTORY]"
     echo -e "\t download [REMOTE_FILE] <LOCAL_FILE>"
     echo -e "\t delete   [REMOTE_FILE]"
     echo -e "\t info"
@@ -319,16 +319,28 @@ esac
 #COMMAND EXECUTION
 case "$COMMAND" in
 
-    upload)
+    upload | rupload )
 
-        if [ $(stat --format="%s" "$FILE_SRC") -gt 150000000 ]; then
+        if [ $(uname) == "Darwin" ]; then
+            stat_cmd="stat -f %z"
+        else
+            stat_cmd="stat --format=%s"
+        fi
+
+        ;;
+esac
+
+case "$COMMAND" in
+    upload )
+        declare -i file_size  #weirdness happens otherwise
+        file_size=$($stat_cmd "$FILE_SRC")
+        if [ $file_size -gt 150000000 ]; then
             print " > FAILED\n"
             print "   Due to a dropbox API limitation you can't upload files\n"
             print "   bigger than 150mb.\n"
             remove_temp_files
             exit 1
         fi
-
         #Show the progress bar during the file upload
         if [ $VERBOSE -eq 1 ]; then
 	        CURL_PARAMETERS="--progress-bar"
@@ -358,13 +370,19 @@ case "$COMMAND" in
 
       for FILE_SRC in $(find $FILE_SRC_DIR); do
 
-        if [ ! -f $FILE_SRC ]; then
-            print " > $FILE_SRC is not a proper file to upload...skipping!\n"
+        if [ ! -f "$FILE_SRC" ]; then
+            if [ ! -d "$FILE_SRC" ]; then 
+                # Don't print this error every time we hit a directory
+                print " > $FILE_SRC is not a proper file to upload...skipping!\n"
+            fi 
             #remove_temp_files
             continue 
+        else 
+            declare -i file_size  #weirdness happens otherwise
+            file_size=$($stat_cmd "$FILE_SRC")
         fi
 
-        if [ $(stat --format="%s" "$FILE_SRC") -gt 150000000 ]; then
+        if [ $file_size -gt 150000000 ]; then
             print " > FAILED\n"
             print "   Due to a dropbox API limitation you can't upload files\n"
             print "   bigger than 150mb.\n"
